@@ -73,6 +73,8 @@ def _read_meta(path: str) -> dict:
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(obj, dict):
+                    continue
                 t = obj.get("type")
                 payload = obj.get("payload")
                 if not isinstance(payload, dict):
@@ -112,6 +114,8 @@ def _parse_offset(path: str, offset: int, meta: dict) -> tuple[list[FeedData], i
         try:
             obj = json.loads(raw)
         except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
             continue
         payload = obj.get("payload")
         if not isinstance(payload, dict):
