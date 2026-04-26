@@ -2,14 +2,15 @@
 Gemini Limb - ~/.gemini/ 감시 (Gemini CLI)
 
 전략: pick_strategy() → watchdog(이벤트) | polling(mtime, 5초 간격)
-파싱: attributes["event.name"]=="gemini_cli.api_response" 인 줄에서
-      attributes.total_token_count
-경로: ~/.gemini/usage/YYYY-MM-DD/<uuid>.jsonl 또는 telemetry.log
+파싱: JSONL의 type=="gemini" 메시지에서
+      tokens.output + tokens.thoughts * 0.05
+경로: ~/.gemini/**/*.jsonl 또는 ~/.config/gemini/**/*.jsonl
 """
 
 import json
 import queue
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from interface import BaseLimb, FeedData
@@ -35,36 +36,97 @@ def _normalize(tokens: int) -> float:
     return min(tokens / _MAX_TOKENS, 1.0)
 
 
-def _parse_offset(path: str, offset: int) -> tuple[int, int]:
-    """offset부터 읽어 (증분 토큰 합계, 새 offset) 반환"""
+def _project_name(path: str) -> str:
+    path_obj = Path(path)
+
+    # ~/.gemini/tmp/<project>/chats/session-*.jsonl -> <project>
+    if path_obj.parent.name == "chats" and path_obj.parent.parent.name:
+        return path_obj.parent.parent.name
+
+    return path_obj.stem
+
+
+def _weighted_tokens(payload: dict) -> int:
+    token_info = payload.get("tokens", {})
+    weighted = token_info.get("output", 0) + (token_info.get("thoughts", 0) * 0.05)
+    return int(round(weighted))
+
+
+def _line_diff(payload: dict) -> int:
+    total = 0
+    for tool_call in payload.get("toolCalls", []):
+        result_display = tool_call.get("resultDisplay")
+        if not isinstance(result_display, dict):
+            continue
+        diff_stat = result_display.get("diffStat")
+        if not isinstance(diff_stat, dict):
+            continue
+        total += diff_stat.get("model_added_lines", 0)
+        total += diff_stat.get("model_removed_lines", 0)
+    return total
+
+
+def _parse_created_at(payload: dict) -> datetime:
+    timestamp = payload.get("timestamp")
+    if not timestamp:
+        return datetime.now()
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now()
+
+
+def _parse_offset(path: str, offset: int, seen_ids: set[str]) -> tuple[list[dict], int]:
+    """offset부터 읽어 신규 gemini 응답 payload 목록과 새 offset을 반환."""
     try:
         with open(path, "rb") as f:
             f.seek(offset)
             data = f.read()
             new_offset = f.tell()
     except OSError:
-        return 0, offset
+        return [], offset
 
-    tokens = 0
+    ordered_ids: list[str] = []
+    latest_by_id: dict[str, dict] = {}
     for line in data.splitlines():
         try:
-            obj = json.loads(line)
-            attrs = obj.get("attributes", {})
-            if attrs.get("event.name") != "gemini_cli.api_response":
-                continue
-            tokens += attrs.get("total_token_count", 0)
+            payload = json.loads(line)
         except json.JSONDecodeError:
             continue
-    return tokens, new_offset
+
+        if payload.get("type") != "gemini":
+            continue
+
+        message_id = payload.get("id")
+        if not message_id or message_id in seen_ids:
+            continue
+
+        if message_id not in latest_by_id:
+            ordered_ids.append(message_id)
+        latest_by_id[message_id] = payload
+
+    events: list[dict] = []
+    for message_id in ordered_ids:
+        payload = latest_by_id[message_id]
+        total_token = _weighted_tokens(payload)
+        if total_token <= 0:
+            continue
+        seen_ids.add(message_id)
+        events.append(payload)
+
+    return events, new_offset
 
 
-def _make_feed(path: str, tokens: int) -> FeedData:
+def _make_feed(path: str, payload: dict) -> FeedData:
     return FeedData(
-        dir=Path(path).stem,
+        dir=_project_name(path),
         agent_name="gemini",
-        total_token=tokens,
-        normalized=_normalize(tokens),
+        total_token=_weighted_tokens(payload),
+        normalized=_normalize(_weighted_tokens(payload)),
+        created_at=_parse_created_at(payload),
+        model_name=payload.get("model", ""),
         session=Path(path).stem,
+        line_diff=_line_diff(payload),
     )
 
 
@@ -76,15 +138,17 @@ def _make_watchdog_handler(feed_queue: queue.Queue):
     class _Handler(FileSystemEventHandler):
         def __init__(self):
             self._offsets: dict[str, int] = {}
+            self._seen_ids: dict[str, set[str]] = {}
 
         def on_modified(self, event):
-            if event.is_directory or not event.src_path.endswith(".json"):
+            if event.is_directory or not event.src_path.endswith(".jsonl"):
                 return
             path = event.src_path
-            tokens, new_offset = _parse_offset(path, self._offsets.get(path, 0))
+            seen_ids = self._seen_ids.setdefault(path, set())
+            payloads, new_offset = _parse_offset(path, self._offsets.get(path, 0), seen_ids)
             self._offsets[path] = new_offset
-            if tokens > 0:
-                feed_queue.put(_make_feed(path, tokens))
+            for payload in payloads:
+                feed_queue.put(_make_feed(path, payload))
 
     return _Handler()
 
@@ -92,6 +156,9 @@ def _make_watchdog_handler(feed_queue: queue.Queue):
 # ── Limb ───────────────────────────────────────────────────────────── #
 
 class GeminiLimb(BaseLimb, PollingMixin):
+    def __init__(self):
+        self._seen_ids_by_path: dict[str, set[str]] = {}
+
     @property
     def name(self) -> str:
         return "gemini"
@@ -123,12 +190,9 @@ class GeminiLimb(BaseLimb, PollingMixin):
 
     def _iter_target_files(self):
         target = _resolve_dir()
-        if target is None:
-            return []
-        return [*target.rglob("*.json"), *target.rglob("*.jsonl")]
+        return target.rglob("*.jsonl") if target else []
 
     def _parse_from_offset(self, path: str, offset: int) -> tuple[list[FeedData], int]:
-        tokens, new_offset = _parse_offset(path, offset)
-        if tokens <= 0:
-            return [], new_offset
-        return [_make_feed(path, tokens)], new_offset
+        seen_ids = self._seen_ids_by_path.setdefault(path, set())
+        payloads, new_offset = _parse_offset(path, offset, seen_ids)
+        return [_make_feed(path, payload) for payload in payloads], new_offset
