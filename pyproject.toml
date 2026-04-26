@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tokenarium"
+version = "0.1.0"
+description = "AI 토큰 사용량을 터미널 어항으로 시각화하는 CLI 툴"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "textual>=0.50",
+    "watchdog>=6.0",
+]
+
+[project.scripts]
+tokenarium = "aqua.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aqua"]
