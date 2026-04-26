@@ -7,11 +7,9 @@ Gemini Limb - ~/.gemini/ 감시 (Gemini CLI)
 경로: ~/.gemini/usage/YYYY-MM-DD/<uuid>.jsonl 또는 telemetry.log
 """
 
-import hashlib
 import json
 import queue
 import threading
-from datetime import datetime
 from pathlib import Path
 
 from interface import BaseLimb, FeedData
@@ -31,10 +29,6 @@ def _resolve_dir() -> Path | None:
         if candidate.exists():
             return candidate
     return None
-
-
-def _project_id(path: str) -> str:
-    return hashlib.sha256(path.encode()).hexdigest()[:8]
 
 
 def _normalize(tokens: int) -> float:
@@ -66,12 +60,11 @@ def _parse_offset(path: str, offset: int) -> tuple[int, int]:
 
 def _make_feed(path: str, tokens: int) -> FeedData:
     return FeedData(
-        project_id=_project_id(path),
-        project_name=Path(path).stem,
-        raw_value=float(tokens),
+        dir=Path(path).stem,
+        agent_name="gemini",
+        total_token=tokens,
         normalized=_normalize(tokens),
-        source="gemini",
-        timestamp=datetime.now(),
+        session=Path(path).stem,
     )
 
 

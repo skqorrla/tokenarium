@@ -150,5 +150,5 @@ class DataStore:
     def get_fish_states(self) -> list:
         raise NotImplementedError
 
-    def update_fish_state(self, project_id: str, food_delta: float):
+    def update_fish_state(self, dir: str, session: str, food_delta: float):
         raise NotImplementedError

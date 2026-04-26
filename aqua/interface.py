@@ -7,12 +7,14 @@ from datetime import datetime
 
 @dataclass
 class FeedData:
-    project_id: str        # sha256(cwd)[:8]
-    project_name: str      # 폴더명
-    raw_value: float       # 원시값 (토큰 수, 커밋 수)
-    normalized: float      # 0.0 ~ 1.0
-    source: str            # "claude" | "codex" | "gemini" | "git"
-    timestamp: datetime = field(default_factory=datetime.now)
+    dir: str               # project.dir     (프로젝트 폴더명)
+    agent_name: str        # agent.agent_name ("claude"|"codex"|"gemini"|"git")
+    total_token: int       # info.total_token
+    normalized: float      # 0.0 ~ 1.0 (DB 저장 안 함, fish XP 계산용)
+    created_at: datetime = field(default_factory=datetime.now)
+    model_name: str = ""   # agent.model_name
+    session: str = ""      # project.session
+    line_diff: int = 0     # info.line_diff
 
 
 class BaseLimb(ABC):

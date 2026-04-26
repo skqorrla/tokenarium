@@ -6,11 +6,9 @@ Git Limb - 프로젝트 .git/COMMIT_EDITMSG 감시
 폴링: PollingMixin 미사용. COMMIT_EDITMSG mtime 비교로 단독 구현.
 """
 
-import hashlib
 import os
 import queue
 import threading
-from datetime import datetime
 from pathlib import Path
 
 from interface import BaseLimb, FeedData
@@ -22,14 +20,12 @@ _MAX_COMMITS = 50  # 정규화 기준 최대 커밋 수
 # ── 공통 유틸 ──────────────────────────────────────────────────────── #
 
 def _make_feed(project_path: Path, commit_count: int) -> FeedData:
-    project_id = hashlib.sha256(str(project_path).encode()).hexdigest()[:8]
     return FeedData(
-        project_id=project_id,
-        project_name=project_path.name,
-        raw_value=float(commit_count),
+        dir=project_path.name,
+        agent_name="git",
+        total_token=0,
         normalized=min(commit_count / _MAX_COMMITS, 1.0),
-        source="git",
-        timestamp=datetime.now(),
+        line_diff=commit_count,
     )
 
 
