@@ -3,6 +3,9 @@ from pathlib import Path
 # ── DataStore ──────────────────────────────────────────────────────── #
 DB_PATH: str = "aqua.db"
 
+# ── Seed (시드 xlsx 디렉토리) ──────────────────────────────────────── #
+DOCS_DIR: Path = Path(__file__).resolve().parent.parent / "docs"
+
 # ── 파일 감시 ──────────────────────────────────────────────────────── #
 POLL_INTERVAL: int = 5          # polling fallback 간격 (초)
 
