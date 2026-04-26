@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# SQLite (생성 산출물)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 에이전트 런타임 (사용자 머신 상태)
+.codex
+.codex/
+
+# 에디터/OS
+.vscode/
+.idea/
+.DS_Store
