@@ -20,3 +20,6 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+
+# 테스트 (로컬 전용)
+tests/
