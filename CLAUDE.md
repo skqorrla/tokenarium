@@ -11,22 +11,24 @@ AI 해커톤 입상 목적 프로젝트.
 ```
 tokenarium/
 ├── CLAUDE.md
+├── docs/
+│   └── architecture.md
 └── aqua/
-    ├── __main__.py          # 진입점 (미구현)
-    ├── main.py              # 메인 루프 (미구현)
-    ├── renderer.py          # 어항 ASCII 렌더링 (미구현)
-    ├── fish.py              # 물고기 ASCII + 성장 단계 (미구현)
-    ├── config.py            # 전역 설정 (미구현)
-    ├── interface.py         # BaseLimb 추상 클래스 + FeedData 데이터클래스 ✅
-    ├── orchestrator.py      # Limb 생명주기 관리 + FeedData 라우팅 ✅
-    ├── store.py             # DataStore 스텁 (ERD 설계 전) ✅
+    ├── __main__.py          ✅ CLI 진입점 (python -m aqua)
+    ├── main.py              ✅ 컴포넌트 배선 + 실행 루프
+    ├── config.py            ✅ 전역 설정 상수
+    ├── interface.py         ✅ BaseLimb 추상 클래스 + FeedData 데이터클래스
+    ├── orchestrator.py      ✅ Limb 생명주기 관리 + FeedData 라우팅
+    ├── store.py             🔲 DataStore 스텁 (ERD 설계 전, 로직 없음)
+    ├── fish.py              🔲 물고기 ASCII + 성장 단계 (빈 파일)
+    ├── renderer.py          🔲 터미널 어항 렌더링 (빈 파일)
     └── limbs/
         ├── __init__.py      ✅
-        ├── polling_mixin.py # watchdog fallback 폴링 로직 ✅
-        ├── claude_limb.py   # Claude JSONL 감시 ✅
-        ├── codex_limb.py    # Codex JSON 감시 ✅
-        ├── gemini_limb.py   # Gemini JSON 감시 ✅
-        └── git_limb.py      # .git/COMMIT_EDITMSG 감시 ✅
+        ├── polling_mixin.py ✅ watchdog fallback 폴링 로직
+        ├── claude_limb.py   ✅ Claude JSONL 감시
+        ├── codex_limb.py    ✅ Codex JSON 감시
+        ├── gemini_limb.py   ✅ Gemini JSON 감시
+        └── git_limb.py      ✅ .git/COMMIT_EDITMSG 감시
 ```
 
 ---
@@ -137,7 +139,7 @@ Claude 프로젝트 식별: `-home-user-Project-myapp` 폴더명 → `rsplit("-"
 
 ---
 
-## 물고기 성장 단계 (미구현 - fish.py 예정)
+## 물고기 성장 단계 (fish.py 구현 예정)
 
 | 누적 food | 크기 | ASCII |
 |---|---|---|
@@ -148,14 +150,31 @@ Claude 프로젝트 식별: `-home-user-Project-myapp` 폴더명 → `rsplit("-"
 
 ---
 
-## 미구현 항목 (다음 세션 작업 대상)
+## 구현 현황
 
-1. **DataStore** (`store.py`) — ERD 확정 후 SQLite 구현
-   - 테이블: `projects`, `fish_state`, `feed_events`
-2. **AquariumRenderer** (`renderer.py`) — blessed/curses 기반 어항 렌더링
-3. **fish.py** — 물고기 ASCII 아트 + 성장 단계 로직
-4. **main.py / __main__.py** — 전체 초기화 + 루프
-5. **config.py** — `GIT_WATCH_DIRS`, `POLL_INTERVAL`, 성장 임계값 등
+| 파일 | 상태 | 담당 |
+|---|---|---|
+| `interface.py` | ✅ 완료 | |
+| `orchestrator.py` | ✅ 완료 | |
+| `config.py` | ✅ 완료 | |
+| `main.py` | ✅ 완료 | |
+| `__main__.py` | ✅ 완료 | |
+| `limbs/*.py` | ✅ 완료 | |
+| `store.py` | 🔲 스텁 | 팀원 A |
+| `fish.py` | 🔲 빈 파일 | 팀원 B |
+| `renderer.py` | 🔲 빈 파일 | 팀원 C |
+
+---
+
+## 팀원 구현 계약 (store / fish / renderer)
+
+`main.py`가 스텁 자동 감지를 하므로, 구현 완료 시 별도 연결 작업 불필요.
+
+```
+store.py    save_feed(feed), update_fish_state(id, delta), get_fish_states()
+renderer.py AquariumRenderer(store), start(), stop(), on_feed(feed)
+fish.py     renderer.py가 import해서 사용 (ASCII 아트, 성장 임계값)
+```
 
 ---
 
