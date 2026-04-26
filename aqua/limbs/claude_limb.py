@@ -15,7 +15,6 @@ from interface import BaseLimb, FeedData
 from limbs.polling_mixin import PollingMixin, pick_strategy
 
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
-_MAX_TOKENS = 100_000
 
 
 # ── 공통 유틸 ──────────────────────────────────────────────────────── #
@@ -25,12 +24,10 @@ def _project_name(path: str) -> str:
     return Path(path).parent.name.rsplit("-", 1)[-1]
 
 
-def _normalize(tokens: int) -> float:
-    return min(tokens / _MAX_TOKENS, 1.0)
-
-
 def _parse_offset(path: str, offset: int) -> tuple[int, int, int]:
-    """offset부터 읽어 (증분 토큰 합계, line_diff, 새 offset) 반환"""
+    """offset부터 읽어 (증분 토큰 합계, line_diff, 새 offset) 반환.
+    토큰 = output_tokens * 1.3 누적합 (input_tokens 미포함).
+    """
     try:
         with open(path, "rb") as f:
             f.seek(offset)
@@ -39,17 +36,17 @@ def _parse_offset(path: str, offset: int) -> tuple[int, int, int]:
     except OSError:
         return 0, 0, offset
 
-    tokens = 0
+    weighted = 0.0
     line_diff = 0
     for line in data.splitlines():
         try:
             obj = json.loads(line)
             usage = obj.get("message", {}).get("usage", {})
-            tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+            weighted += usage.get("output_tokens", 0) * 1.3
             line_diff += json.dumps(obj.get("messages", "")).count("\\n")
         except json.JSONDecodeError:
             continue
-    return tokens, line_diff, new_offset
+    return int(round(weighted)), line_diff, new_offset
 
 
 def _make_feed(path: str, tokens: int, line_diff: int) -> FeedData:
@@ -57,7 +54,7 @@ def _make_feed(path: str, tokens: int, line_diff: int) -> FeedData:
         dir=_project_name(path),
         agent_name="claude",
         total_token=tokens,
-        normalized=_normalize(tokens),
+        normalized=float(tokens),
         session=Path(path).stem,
         line_diff=line_diff,
     )

@@ -2,10 +2,12 @@
 test_claude_limb.py - ClaudeLimb 및 토큰 인식 로직 테스트
 
 계층 구조:
-  1. 순수 함수 단위 테스트  (_project_name, _normalize)
+  1. 순수 함수 단위 테스트  (_project_name)
   2. 파일 파싱 테스트        (_parse_offset - tmp_path 사용)
   3. FeedData 생성 테스트    (_parse_from_offset 반환값 검증)
   4. Limb 동작 통합 테스트   (polling 모드, 실제 watch 루프)
+
+토큰 계산: output_tokens * 1.3 (input_tokens 미포함, 정규화 없음)
 """
 
 import queue
@@ -17,7 +19,6 @@ import pytest
 from limbs.claude_limb import (
     ClaudeLimb,
     _make_feed,
-    _normalize,
     _parse_offset,
     _project_name,
 )
@@ -33,44 +34,25 @@ class TestProjectName:
         assert _project_name(path) == "myapp"
 
     def test_short_folder_no_hyphen(self):
-        """하이픈이 하나뿐인 폴더: rsplit 마지막 토큰 반환"""
         path = "/home/user/.claude/projects/-myapp/abc.jsonl"
         assert _project_name(path) == "myapp"
 
     def test_deep_nested_name(self):
-        """하이픈이 많은 경로에서 마지막 세그먼트만 추출"""
         path = "/home/user/.claude/projects/-home-user-a-b-c-myapp/abc.jsonl"
         assert _project_name(path) == "myapp"
-
-
-class TestNormalize:
-    def test_zero_tokens(self):
-        assert _normalize(0) == 0.0
-
-    def test_half_max(self):
-        assert _normalize(50_000) == pytest.approx(0.5)
-
-    def test_at_max(self):
-        assert _normalize(100_000) == 1.0
-
-    def test_over_max_clamps_to_one(self):
-        assert _normalize(200_000) == 1.0
-
-    def test_small_value(self):
-        result = _normalize(1_000)
-        assert 0.0 < result < 1.0
 
 
 # ── 2. 파일 파싱 테스트 ────────────────────────────────────────────── #
 
 class TestParseOffset:
     def test_normal_jsonl(self, tmp_path):
+        # output=50 → 65, output=100 → 130, 합계=195
         f = tmp_path / "session.jsonl"
         f.write_text(make_usage_line(100, 50) + make_usage_line(200, 100))
 
         tokens, line_diff, new_offset = _parse_offset(str(f), 0)
 
-        assert tokens == 450
+        assert tokens == 195
         assert new_offset == f.stat().st_size
 
     def test_empty_file(self, tmp_path):
@@ -92,15 +74,16 @@ class TestParseOffset:
 
         tokens, _, _ = _parse_offset(str(f), 0)
 
-        assert tokens == 450
+        assert tokens == 195
 
     def test_ignores_non_usage_lines(self, tmp_path):
+        # output=50 → 65
         f = tmp_path / "session.jsonl"
         f.write_text(make_non_usage_line() + make_usage_line(100, 50))
 
         tokens, _, _ = _parse_offset(str(f), 0)
 
-        assert tokens == 150
+        assert tokens == 65
 
     def test_file_not_found(self, tmp_path):
         missing = str(tmp_path / "nonexistent.jsonl")
@@ -112,24 +95,22 @@ class TestParseOffset:
         assert new_offset == 0
 
     def test_incremental_offset_no_duplicate(self, tmp_path):
-        """핵심: offset 기반 증분 읽기 - 이전에 읽은 줄을 다시 읽지 않는다"""
+        """offset 기반 증분 읽기 - 이전에 읽은 줄을 다시 읽지 않는다"""
         f = tmp_path / "session.jsonl"
-        first_line = make_usage_line(100, 50)
-        f.write_text(first_line)
+        f.write_text(make_usage_line(100, 50))  # output=50 → 65
 
         tokens1, _, offset1 = _parse_offset(str(f), 0)
-        assert tokens1 == 150
+        assert tokens1 == 65
 
         with open(f, "a") as fp:
-            fp.write(make_usage_line(200, 100))
+            fp.write(make_usage_line(200, 100))  # output=100 → 130
 
         tokens2, _, offset2 = _parse_offset(str(f), offset1)
 
-        assert tokens2 == 300
+        assert tokens2 == 130
         assert offset2 > offset1
 
     def test_counts_newlines_in_messages(self, tmp_path):
-        """messages 키의 \\n 개수를 line_diff로 반환한다"""
         f = tmp_path / "session.jsonl"
         f.write_text(make_messages_line("line1\nline2\nline3"))
 
@@ -138,7 +119,6 @@ class TestParseOffset:
         assert line_diff == 2
 
     def test_line_diff_zero_when_no_messages_key(self, tmp_path):
-        """messages 키가 없으면 line_diff는 0이다"""
         f = tmp_path / "session.jsonl"
         f.write_text(make_usage_line(100, 50))
 
@@ -147,7 +127,6 @@ class TestParseOffset:
         assert line_diff == 0
 
     def test_line_diff_accumulates_across_lines(self, tmp_path):
-        """여러 줄에 걸친 messages \\n을 모두 합산한다"""
         f = tmp_path / "session.jsonl"
         f.write_text(
             make_messages_line("a\nb") + make_messages_line("c\nd\ne")
@@ -156,6 +135,15 @@ class TestParseOffset:
         _, line_diff, _ = _parse_offset(str(f), 0)
 
         assert line_diff == 3  # 1 + 2
+
+    def test_only_output_tokens_counted(self, tmp_path):
+        """input_tokens는 무시하고 output_tokens * 1.3만 집계"""
+        f = tmp_path / "session.jsonl"
+        f.write_text(make_usage_line(999, 100))  # output=100 → 130
+
+        tokens, _, _ = _parse_offset(str(f), 0)
+
+        assert tokens == 130
 
 
 # ── 3. FeedData 생성 테스트 ────────────────────────────────────────── #
@@ -184,19 +172,26 @@ class TestParseFeedData:
         assert feeds[0].dir == "myapp"
 
     def test_feed_total_token(self, claude_jsonl):
+        # claude_jsonl: make_usage_line(100, 50) → output=50 * 1.3 = 65
         limb = ClaudeLimb()
         feeds, _ = limb._parse_from_offset(str(claude_jsonl), 0)
 
-        assert feeds[0].total_token == 150  # 100 + 50
+        assert feeds[0].total_token == 65
+
+    def test_feed_normalized_equals_total_token(self, claude_jsonl):
+        """normalized는 0~1 클램핑 없이 total_token과 동일한 값"""
+        limb = ClaudeLimb()
+        feeds, _ = limb._parse_from_offset(str(claude_jsonl), 0)
+
+        assert feeds[0].normalized == float(feeds[0].total_token)
 
     def test_feed_session(self, claude_jsonl):
         limb = ClaudeLimb()
         feeds, _ = limb._parse_from_offset(str(claude_jsonl), 0)
 
-        assert feeds[0].session == "session"  # 파일명 stem
+        assert feeds[0].session == "session"
 
     def test_feed_line_diff(self, claude_project):
-        """messages 키가 있는 줄에서 line_diff가 FeedData에 반영된다"""
         f = claude_project / "session2.jsonl"
         f.write_text(
             make_usage_line(100, 50) + make_messages_line("line1\nline2")
@@ -233,7 +228,6 @@ class TestClaudeLimbIterFiles:
         assert claude_jsonl in files
 
     def test_finds_multiple_projects(self, monkeypatch, claude_projects_dir):
-        """여러 프로젝트 디렉토리의 파일을 모두 탐색"""
         for proj in ["proj-A", "proj-B"]:
             d = claude_projects_dir / f"-home-user-{proj}"
             d.mkdir()
@@ -248,11 +242,6 @@ class TestClaudeLimbIterFiles:
 
 
 class TestClaudeLimbPollingIntegration:
-    """
-    polling 모드로 실제 watch 루프 동작 검증.
-    watchdog 이벤트 없이도 토큰 변화를 감지해야 한다.
-    """
-
     def test_polling_detects_new_tokens(self, monkeypatch, claude_projects_dir):
         proj_dir = claude_projects_dir / "-home-user-Project-myapp"
         proj_dir.mkdir()
@@ -274,22 +263,21 @@ class TestClaudeLimbPollingIntegration:
         t.start()
 
         time.sleep(0.25)
-        jsonl.write_text(make_usage_line(100, 50))
+        jsonl.write_text(make_usage_line(100, 50))  # output=50 → 65
 
         feed = feed_queue.get(timeout=3.0)
         stop_event.set()
 
         assert feed.agent_name == "claude"
         assert feed.dir == "myapp"
-        assert feed.total_token == 150
-        assert 0.0 < feed.normalized <= 1.0
+        assert feed.total_token == 65
+        assert feed.normalized == 65.0
 
     def test_polling_no_duplicate_on_second_cycle(self, monkeypatch, claude_projects_dir):
-        """같은 파일을 두 번 폴링해도 동일한 토큰을 중복 발행하지 않는다"""
         proj_dir = claude_projects_dir / "-home-user-Project-myapp"
         proj_dir.mkdir()
         jsonl = proj_dir / "session.jsonl"
-        jsonl.write_text(make_usage_line(100, 50))
+        jsonl.write_text(make_usage_line(100, 50))  # output=50 → 65
 
         monkeypatch.setattr("limbs.claude_limb.CLAUDE_PROJECTS_DIR", claude_projects_dir)
         monkeypatch.setattr("limbs.claude_limb.pick_strategy", lambda: "polling")
@@ -306,7 +294,7 @@ class TestClaudeLimbPollingIntegration:
         t.start()
 
         first = feed_queue.get(timeout=3.0)
-        assert first.total_token == 150
+        assert first.total_token == 65
 
         time.sleep(0.3)
         stop_event.set()
@@ -314,7 +302,6 @@ class TestClaudeLimbPollingIntegration:
         assert feed_queue.empty(), "중복 FeedData가 발행됨"
 
     def test_polling_detects_multiple_projects(self, monkeypatch, claude_projects_dir):
-        """여러 프로젝트가 동시에 감시될 때 각각 별도 FeedData를 발행한다"""
         for proj, tokens in [("proj-A", (100, 50)), ("proj-B", (200, 100))]:
             d = claude_projects_dir / f"-home-user-{proj}"
             d.mkdir()
@@ -346,8 +333,6 @@ class TestClaudeLimbPollingIntegration:
 # ── LimbContractMixin 계약 테스트 ─────────────────────────────────── #
 
 class TestClaudeLimbContract(LimbContractMixin):
-    """공통 계약 테스트 - 3개 메서드만 구현하면 테스트 자동 실행"""
-
     def _make_limb(self):
         return ClaudeLimb()
 

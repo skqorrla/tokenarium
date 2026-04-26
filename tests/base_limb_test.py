@@ -49,7 +49,7 @@ class LimbContractMixin:
         """FeedData 필드 정합성 공통 검증"""
         assert isinstance(feed, FeedData), f"FeedData 타입이어야 함, 실제: {type(feed)}"
         assert feed.agent_name == expected_agent_name, f"agent_name: {feed.agent_name!r} != {expected_agent_name!r}"
-        assert 0.0 <= feed.normalized <= 1.0,          f"normalized 범위 초과: {feed.normalized}"
+        assert feed.normalized >= 0.0,                 f"normalized 음수: {feed.normalized}"
         assert feed.dir != "",                          "dir 비어있음"
         assert feed.total_token >= 0,                  f"total_token 음수: {feed.total_token}"
         assert feed.created_at is not None,            "created_at 없음"
