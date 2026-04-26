@@ -8,123 +8,76 @@
 
 import sqlite3
 
-# 12개 테이블의 idempotent DDL. CREATE TABLE IF NOT EXISTS 로 재실행 안전.
+# 8개 테이블의 idempotent DDL. CREATE TABLE IF NOT EXISTS 로 재실행 안전.
+# PK 외 모든 컬럼은 NULL 허용 (사용자 정책).
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS aquarium (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS agent (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent_name  TEXT NOT NULL,
-    model_name  TEXT NOT NULL,
+    agent_name  TEXT,
+    model_name  TEXT,
     UNIQUE(agent_name, model_name)
 );
 
 CREATE TABLE IF NOT EXISTS project (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    aquarium_id  INTEGER NOT NULL REFERENCES aquarium(id),
-    dir          TEXT    NOT NULL,
-    session      TEXT    NOT NULL,
-    UNIQUE(aquarium_id, dir, session)
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    dir      TEXT,
+    session  TEXT,
+    UNIQUE(dir, session)
 );
 
 CREATE TABLE IF NOT EXISTS info (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    agent_id      INTEGER NOT NULL REFERENCES agent(id),
-    project_id    INTEGER NOT NULL REFERENCES project(id),
-    total_token   INTEGER NOT NULL DEFAULT 0,
-    line_diff     INTEGER NOT NULL DEFAULT 0,
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id     INTEGER REFERENCES agent(id),
+    project_id   INTEGER REFERENCES project(id),
+    total_token  INTEGER,
+    line_diff    INTEGER,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_info_project_created ON info(project_id, created_at);
 
 CREATE TABLE IF NOT EXISTS fish_species (
-    level_min     INTEGER PRIMARY KEY,
-    emoji         TEXT    NOT NULL,
-    name_kr       TEXT    NOT NULL,
-    xp_required   INTEGER NOT NULL,
-    is_legendary  INTEGER NOT NULL DEFAULT 0
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    level_min     INTEGER,
+    emoji         TEXT,
+    name_kr       TEXT,
+    xp_required   INTEGER,
+    is_legendary  INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS aquarium_stage (
     stage        INTEGER PRIMARY KEY,
-    level_min    INTEGER NOT NULL,
+    level_min    INTEGER,
     description  TEXT,
     decorations  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS fish (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id      INTEGER NOT NULL UNIQUE REFERENCES project(id),
-    name            TEXT    NOT NULL,
-    level           INTEGER NOT NULL DEFAULT 1,
-    xp              INTEGER NOT NULL DEFAULT 0,
-    species         TEXT    NOT NULL,
-    aquarium_stage  INTEGER NOT NULL DEFAULT 1 REFERENCES aquarium_stage(stage),
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    species_id      INTEGER REFERENCES fish_species(id),
+    project_id      INTEGER UNIQUE REFERENCES project(id),
+    name            TEXT,
+    level           INTEGER,
+    xp              INTEGER,
+    aquarium_stage  INTEGER REFERENCES aquarium_stage(stage),
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS fish_state (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    fish_id       INTEGER NOT NULL UNIQUE REFERENCES fish(id),
-    fullness      INTEGER NOT NULL DEFAULT 100,
-    is_fainted    INTEGER NOT NULL DEFAULT 0,
-    fainted_at    DATETIME,
-    last_updated  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS currency (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    aquarium_id   INTEGER NOT NULL UNIQUE REFERENCES aquarium(id),
-    coins         INTEGER NOT NULL DEFAULT 0,
-    total_earned  INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS currency_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    aquarium_id  INTEGER NOT NULL REFERENCES aquarium(id),
-    source_type  TEXT    NOT NULL,
-    amount       INTEGER NOT NULL,
-    info_id      INTEGER NOT NULL REFERENCES info(id),
-    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    fish_id       INTEGER UNIQUE REFERENCES fish(id),
+    fullness      INTEGER,
+    last_updated  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS feed_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    fish_id          INTEGER NOT NULL REFERENCES fish(id),
-    fullness_before  INTEGER NOT NULL,
-    fullness_after   INTEGER NOT NULL,
-    xp_gained        INTEGER NOT NULL DEFAULT 0,
-    coins_used       INTEGER NOT NULL DEFAULT 0,
-    fed_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS revive_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    fish_id      INTEGER NOT NULL REFERENCES fish(id),
-    coins_spent  INTEGER NOT NULL,
-    revived_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS interaction_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    fish_id      INTEGER NOT NULL REFERENCES fish(id),
-    trigger      TEXT    NOT NULL,
-    dialogue     TEXT    NOT NULL,
-    fullness_at  INTEGER NOT NULL,
-    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS dialogue (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    condition  TEXT NOT NULL,
-    species    TEXT,
-    text       TEXT NOT NULL
+    fish_id          INTEGER REFERENCES fish(id),
+    fullness_before  INTEGER,
+    fullness_after   INTEGER,
+    tokens_used       INTEGER,
+    fed_at           DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 """
 
