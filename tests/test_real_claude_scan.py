@@ -25,7 +25,7 @@ def _scan_all() -> dict[str, dict]:
     """실제 JSONL 파일을 전부 읽어 프로젝트별 토큰 합산"""
     projects: dict[str, dict] = defaultdict(lambda: {"tokens": 0, "files": 0})
     for path in CLAUDE_PROJECTS_DIR.rglob("*.jsonl"):
-        tokens, _ = _parse_offset(str(path), 0)
+        tokens, _, _ = _parse_offset(str(path), 0)
         name = _project_name(str(path))
         projects[name]["tokens"] += tokens
         projects[name]["files"] += 1

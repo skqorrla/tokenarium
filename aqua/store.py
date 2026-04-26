@@ -97,8 +97,35 @@ class DataStore:
 
     # ── 후속 단계 미구현 스텁 (main.py StubStore 감지 호환용) ────────── #
 
-    def save_feed(self, feed_data):
-        raise NotImplementedError
+    def save_feed(self, feed) -> None:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO agent(agent_name, model_name) VALUES(?, ?)",
+                (feed.agent_name, feed.model_name),
+            )
+            (agent_id,) = conn.execute(
+                "SELECT id FROM agent WHERE agent_name=? AND model_name=?",
+                (feed.agent_name, feed.model_name),
+            ).fetchone()
+
+            conn.execute(
+                "INSERT OR IGNORE INTO project(dir, session) VALUES(?, ?)",
+                (feed.dir, feed.session),
+            )
+            (project_id,) = conn.execute(
+                "SELECT id FROM project WHERE dir=? AND session=?",
+                (feed.dir, feed.session),
+            ).fetchone()
+
+            conn.execute(
+                "INSERT INTO info(agent_id, project_id, total_token, line_diff)"
+                " VALUES(?, ?, ?, ?)",
+                (agent_id, project_id, feed.total_token, feed.line_diff),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def get_fish_states(self) -> list:
         raise NotImplementedError

@@ -30,6 +30,11 @@ def make_broken_line() -> str:
     """깨진 JSON 줄 (무시 대상)"""
     return "NOT_VALID_JSON\n"
 
+def make_messages_line(content: str) -> str:
+    """messages 키를 포함한 JSONL 줄 — line_diff 카운팅 테스트용"""
+    import json
+    return json.dumps({"type": "user", "messages": content}) + "\n"
+
 
 # ── Claude 디렉토리 픽스처 ─────────────────────────────────────────── #
 

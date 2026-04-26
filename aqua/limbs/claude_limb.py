@@ -29,34 +29,37 @@ def _normalize(tokens: int) -> float:
     return min(tokens / _MAX_TOKENS, 1.0)
 
 
-def _parse_offset(path: str, offset: int) -> tuple[int, int]:
-    """offset부터 읽어 (증분 토큰 합계, 새 offset) 반환"""
+def _parse_offset(path: str, offset: int) -> tuple[int, int, int]:
+    """offset부터 읽어 (증분 토큰 합계, line_diff, 새 offset) 반환"""
     try:
         with open(path, "rb") as f:
             f.seek(offset)
             data = f.read()
             new_offset = f.tell()
     except OSError:
-        return 0, offset
+        return 0, 0, offset
 
     tokens = 0
+    line_diff = 0
     for line in data.splitlines():
         try:
             obj = json.loads(line)
             usage = obj.get("message", {}).get("usage", {})
             tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+            line_diff += json.dumps(obj.get("messages", "")).count("\\n")
         except json.JSONDecodeError:
             continue
-    return tokens, new_offset
+    return tokens, line_diff, new_offset
 
 
-def _make_feed(path: str, tokens: int) -> FeedData:
+def _make_feed(path: str, tokens: int, line_diff: int) -> FeedData:
     return FeedData(
         dir=_project_name(path),
         agent_name="claude",
         total_token=tokens,
         normalized=_normalize(tokens),
         session=Path(path).stem,
+        line_diff=line_diff,
     )
 
 
@@ -73,10 +76,10 @@ def _make_watchdog_handler(feed_queue: queue.Queue):
             if event.is_directory or not event.src_path.endswith(".jsonl"):
                 return
             path = event.src_path
-            tokens, new_offset = _parse_offset(path, self._offsets.get(path, 0))
+            tokens, line_diff, new_offset = _parse_offset(path, self._offsets.get(path, 0))
             self._offsets[path] = new_offset
             if tokens > 0:
-                feed_queue.put(_make_feed(path, tokens))
+                feed_queue.put(_make_feed(path, tokens, line_diff))
 
     return _Handler()
 
@@ -114,7 +117,7 @@ class ClaudeLimb(BaseLimb, PollingMixin):
         return CLAUDE_PROJECTS_DIR.rglob("*.jsonl")
 
     def _parse_from_offset(self, path: str, offset: int) -> tuple[list[FeedData], int]:
-        tokens, new_offset = _parse_offset(path, offset)
+        tokens, line_diff, new_offset = _parse_offset(path, offset)
         if tokens <= 0:
             return [], new_offset
-        return [_make_feed(path, tokens)], new_offset
+        return [_make_feed(path, tokens, line_diff)], new_offset
