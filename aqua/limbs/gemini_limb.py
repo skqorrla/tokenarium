@@ -20,7 +20,6 @@ _GEMINI_CANDIDATES = [
     Path.home() / ".gemini",
     Path.home() / ".config" / "gemini",
 ]
-_MAX_TOKENS = 100_000
 
 
 # ── 공통 유틸 ──────────────────────────────────────────────────────── #
@@ -30,10 +29,6 @@ def _resolve_dir() -> Path | None:
         if candidate.exists():
             return candidate
     return None
-
-
-def _normalize(tokens: int) -> float:
-    return min(tokens / _MAX_TOKENS, 1.0)
 
 
 def _project_name(path: str) -> str:
@@ -118,11 +113,12 @@ def _parse_offset(path: str, offset: int, seen_ids: set[str]) -> tuple[list[dict
 
 
 def _make_feed(path: str, payload: dict) -> FeedData:
+    weighted_tokens = _weighted_tokens(payload)
     return FeedData(
         dir=_project_name(path),
         agent_name="gemini",
-        total_token=_weighted_tokens(payload),
-        normalized=_normalize(_weighted_tokens(payload)),
+        total_token=weighted_tokens,
+        normalized=float(weighted_tokens),
         created_at=_parse_created_at(payload),
         model_name=payload.get("model", ""),
         session=Path(path).stem,
