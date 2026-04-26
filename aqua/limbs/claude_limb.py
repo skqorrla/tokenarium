@@ -48,7 +48,8 @@ def _parse_offset(path: str, offset: int) -> tuple[int, int]:
     tokens = 0
     for line in data.splitlines():
         try:
-            usage = json.loads(line).get("usage", {})
+            obj = json.loads(line)
+            usage = obj.get("message", {}).get("usage", {})
             tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
         except json.JSONDecodeError:
             continue
