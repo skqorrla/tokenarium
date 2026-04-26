@@ -9,9 +9,6 @@ DOCS_DIR: Path = Path(__file__).resolve().parent.parent / "docs"
 # ── 파일 감시 ──────────────────────────────────────────────────────── #
 POLL_INTERVAL: int = 5          # polling fallback 간격 (초)
 
-# ── Git ────────────────────────────────────────────────────────────── #
-GIT_WATCH_DIRS: list[str] = []  # 비어있으면 cwd 자동 감지
-
 # ── 물고기 성장 임계값 (total_food 기준) ───────────────────────────── #
 GROWTH_THRESHOLDS: list[float] = [10.0, 50.0, 200.0]  # 소 / 중 / 대
 

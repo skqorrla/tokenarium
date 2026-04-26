@@ -27,13 +27,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="DB 파일 경로 (기본: aqua.db)",
     )
     parser.add_argument(
-        "--dirs",
-        nargs="*",
-        metavar="PATH",
-        default=None,
-        help="추가로 감시할 git 프로젝트 경로 (기본: 현재 디렉토리)",
-    )
-    parser.add_argument(
         "--interval",
         type=int,
         metavar="N",
@@ -89,12 +82,13 @@ if __name__ == "__main__":
         _run_seed(args.db, args.docs)
         sys.exit(0)
 
-    # 기본 실행 경로 (기존 동작 유지)
+    # 기본 실행 경로: init → seed → app
+    _run_init(args.db)
+    _run_seed(args.db, None)
+
     if args.interval is not None:
         import config
         config.POLL_INTERVAL = args.interval
 
-    git_dirs = [Path(d) for d in args.dirs] if args.dirs else None
-
     import main
-    main.run(db_path=args.db, git_dirs=git_dirs)
+    main.run(db_path=args.db)
