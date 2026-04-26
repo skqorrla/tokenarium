@@ -482,7 +482,7 @@ class AquariumRenderer:
         pass
 
     def on_feed(self, feed) -> None:
-        pass
+        print(f"[feed] {feed.agent_name:<8} {feed.dir:<20} +{feed.normalized}")
 
 
 def run_watch_app(store, dir_path: str) -> None:

@@ -79,7 +79,7 @@ class Orchestrator:
                 feed: FeedData = self._feed_queue.get(timeout=1.0)
                 self._store.save_feed(feed)
                 try:
-                    self._store.update_fish_state(feed.dir, feed.session, feed.normalized)
+                    self._store.update_fish_state(feed.dir, feed.normalized)
                 except NotImplementedError:
                     pass
                 if self._on_feed:

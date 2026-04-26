@@ -19,8 +19,20 @@ CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 # ── 공통 유틸 ──────────────────────────────────────────────────────── #
 
-def _project_name(path: str) -> str:
-    # ~/.claude/projects/-home-user-Project-myapp/xxx.jsonl → "myapp"
+def _project_dir(path: str) -> str:
+    """Claude 로그에서 실제 cwd를 우선 추출하고, 없으면 폴더명 fallback."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                cwd = obj.get("cwd")
+                if isinstance(cwd, str) and cwd:
+                    return cwd
+    except OSError:
+        pass
     return Path(path).parent.name.rsplit("-", 1)[-1]
 
 
@@ -51,7 +63,7 @@ def _parse_offset(path: str, offset: int) -> tuple[int, int, int]:
 
 def _make_feed(path: str, tokens: int, line_diff: int) -> FeedData:
     return FeedData(
-        dir=_project_name(path),
+        dir=_project_dir(path),
         agent_name="claude",
         total_token=tokens,
         normalized=float(tokens),

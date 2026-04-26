@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
+from pathlib import Path
 
 import config
 from fish import (
@@ -162,13 +163,25 @@ class DataStore:
         ).fetchone()["id"]
 
     def _get_or_create_project(self, conn, dir_path: str, session: str = "") -> int:
+        row = conn.execute(
+            "SELECT id FROM project WHERE dir=?",
+            (dir_path,),
+        ).fetchone()
+        if row:
+            if session:
+                conn.execute(
+                    "UPDATE project SET session=? WHERE id=? AND (session IS NULL OR session='')",
+                    (session, row["id"]),
+                )
+            return row["id"]
+
         conn.execute(
-            "INSERT OR IGNORE INTO project(dir, session) VALUES(?,?)",
+            "INSERT INTO project(dir, session) VALUES(?,?)",
             (dir_path, session),
         )
         return conn.execute(
-            "SELECT id FROM project WHERE dir=? AND session=?",
-            (dir_path, session),
+            "SELECT id FROM project WHERE dir=?",
+            (dir_path,),
         ).fetchone()["id"]
 
     def _apply_decay(self, fullness: int, last_updated) -> int:
@@ -363,8 +376,27 @@ class DataStore:
             fish_row = conn.execute(
                 "SELECT id FROM fish WHERE project_id=?", (project_id,)
             ).fetchone()
-            if fish_row:
-                self._sync_fish_xp_level(conn, fish_row["id"], project_id)
+            if not fish_row:
+                sp_row = conn.execute(
+                    "SELECT id FROM fish_species WHERE xp_required=0 LIMIT 1"
+                ).fetchone()
+                species_id = sp_row["id"] if sp_row else 1
+                fish_name = Path(feed.dir).name or "new fish"
+                conn.execute(
+                    "INSERT INTO fish(species_id, project_id, name, level, xp, aquarium_stage)"
+                    " VALUES(?,?,?,1,0,1)",
+                    (species_id, project_id, fish_name),
+                )
+                fish_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                conn.execute(
+                    "INSERT INTO fish_state(fish_id, fullness, last_updated)"
+                    " VALUES(?,50,datetime('now'))",
+                    (fish_id,),
+                )
+            else:
+                fish_id = fish_row["id"]
+
+            self._sync_fish_xp_level(conn, fish_id, project_id)
 
     def get_fish_states(self) -> list:
         return self.get_all_fish_with_state()

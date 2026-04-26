@@ -9,6 +9,7 @@ Gemini Limb - ~/.gemini/ 감시 (Gemini CLI)
 
 import json
 import queue
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,35 @@ def _project_name(path: str) -> str:
         return path_obj.parent.parent.name
 
     return path_obj.stem
+
+
+def _path_to_project_dir(raw_path: str) -> str:
+    path_obj = Path(raw_path)
+    if path_obj.suffix:
+        return str(path_obj.parent)
+    return str(path_obj)
+
+
+def _project_dir_from_payload(path: str, payload: dict) -> str:
+    for tool_call in payload.get("toolCalls", []):
+        result_display = tool_call.get("resultDisplay")
+        if isinstance(result_display, dict):
+            file_path = result_display.get("filePath")
+            if isinstance(file_path, str) and file_path.startswith("/"):
+                return _path_to_project_dir(file_path)
+
+        for result in tool_call.get("result", []):
+            if not isinstance(result, dict):
+                continue
+            response = result.get("functionResponse", {}).get("response", {})
+            output = response.get("output")
+            if not isinstance(output, str):
+                continue
+            match = re.search(r"(/Users/[^\s:\"']+)", output)
+            if match:
+                return _path_to_project_dir(match.group(1))
+
+    return _project_name(path)
 
 
 def _weighted_tokens(payload: dict) -> int:
@@ -115,7 +145,7 @@ def _parse_offset(path: str, offset: int, seen_ids: set[str]) -> tuple[list[dict
 def _make_feed(path: str, payload: dict) -> FeedData:
     weighted_tokens = _weighted_tokens(payload)
     return FeedData(
-        dir=_project_name(path),
+        dir=_project_dir_from_payload(path, payload),
         agent_name="gemini",
         total_token=weighted_tokens,
         normalized=float(weighted_tokens),

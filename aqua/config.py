@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # ── DataStore ──────────────────────────────────────────────────────── #
-DB_PATH: str = "aqua.db"
+DB_PATH: str = str(Path(__file__).resolve().parent.parent / "aqua.db")
 
 # ── Seed (시드 xlsx 디렉토리) ──────────────────────────────────────── #
 DOCS_DIR: Path = Path(__file__).resolve().parent.parent / "docs"

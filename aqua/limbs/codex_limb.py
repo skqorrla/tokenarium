@@ -82,7 +82,7 @@ def _read_meta(path: str) -> dict:
                 if t == "session_meta":
                     cwd = payload.get("cwd", "")
                     if cwd:
-                        meta["dir"] = Path(cwd).name
+                        meta["dir"] = cwd
                     sid = payload.get("id", "")
                     if sid:
                         meta["session"] = sid
