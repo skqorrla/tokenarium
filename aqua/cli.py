@@ -45,6 +45,26 @@ def main(ctx: click.Context) -> None:
 
 
 @main.command()
+@click.option("-y", "--yes", is_flag=True, help="확인 프롬프트 없이 바로 삭제")
+def delete(yes: bool) -> None:
+    """현재 프로젝트 물고기 삭제."""
+    store    = _get_store()
+    dir_path = str(Path.cwd())
+
+    fish = store.get_fish_by_dir(dir_path)
+    if fish is None:
+        click.echo("이 프로젝트에 등록된 물고기가 없습니다.")
+        return
+
+    click.echo(f"  {fish['species']} {fish['name']}  Lv.{fish['level']}  xp={fish['xp']}")
+    if not yes:
+        click.confirm("정말 삭제할까요? 관련 토큰 기록도 모두 사라집니다", abort=True)
+
+    store.delete_fish(dir_path)
+    click.echo(f"'{fish['name']}' 을(를) 삭제했습니다.")
+
+
+@main.command()
 def all() -> None:
     """전체 어항 뷰 — 모든 물고기 현황."""
     store = _get_store()

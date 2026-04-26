@@ -379,6 +379,31 @@ class DataStore:
             if row:
                 self._sync_fish_xp_level(conn, row["id"], row["project_id"])
 
+    # ── 삭제 ───────────────────────────────────────────────────────────── #
+
+    def delete_fish(self, dir_path: str) -> bool:
+        """project.dir 기준으로 물고기 및 관련 데이터를 모두 삭제. 존재하면 True 반환."""
+        with self._connect() as conn:
+            proj = conn.execute(
+                "SELECT id FROM project WHERE dir=?", (dir_path,)
+            ).fetchone()
+            if not proj:
+                return False
+            project_id = proj["id"]
+
+            fish = conn.execute(
+                "SELECT id FROM fish WHERE project_id=?", (project_id,)
+            ).fetchone()
+            if fish:
+                fish_id = fish["id"]
+                conn.execute("DELETE FROM feed_log   WHERE fish_id=?",  (fish_id,))
+                conn.execute("DELETE FROM fish_state WHERE fish_id=?",  (fish_id,))
+                conn.execute("DELETE FROM fish       WHERE id=?",       (fish_id,))
+
+            conn.execute("DELETE FROM info    WHERE project_id=?", (project_id,))
+            conn.execute("DELETE FROM project WHERE id=?",         (project_id,))
+            return True
+
     # ── 테스트 / 데모 헬퍼 ─────────────────────────────────────────────── #
 
     def add_test_tokens(
