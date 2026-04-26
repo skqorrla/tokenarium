@@ -161,7 +161,7 @@ class WatchApp(App):
         background: #0d1117;
     }
     #aquarium {
-        height: 8;
+        height: 9;
         padding: 0 1;
         width: 100%;
         background: #0d1117;
@@ -182,7 +182,6 @@ class WatchApp(App):
         height: auto;
         min-height: 3;
     }
-    #feedback { height: 1; padding: 0 2; }
     """
 
     BINDINGS = [
@@ -198,9 +197,11 @@ class WatchApp(App):
         self._fish_x         = 12
         self._fish_dir       = 1
         self._fish_data: dict = {}
-        self._feedback        = ""
-        self._feedback_ticks  = 0
-        self._border_flash    = 0
+        self._feed_msg:      str  = ""
+        self._feed_ticks:    int  = 0
+        self._levelup:       dict = {}
+        self._levelup_ticks: int  = 0
+        self._border_flash:  int  = 0
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -209,7 +210,6 @@ class WatchApp(App):
         )
         yield Static("─" * 200, classes="sep")
         yield Static("", id="aquarium")
-        yield Static("─" * 200, classes="sep")
         yield Horizontal(
             Static("", id="fish-panel"),
             Static("", id="food-panel"),
@@ -217,7 +217,6 @@ class WatchApp(App):
         )
         yield Static("─" * 200, classes="sep")
         yield Static("", id="activity")
-        yield Static("", id="feedback")
 
     def on_mount(self) -> None:
         self._fish_data = self._store.get_fish_by_dir(self._dir) or {}
@@ -226,7 +225,22 @@ class WatchApp(App):
 
     def _on_tick(self) -> None:
         self._tick += 1
+        prev_level   = self._fish_data.get("level",   1)
+        prev_species = self._fish_data.get("species", "🐟")
+
         self._fish_data = self._store.get_fish_by_dir(self._dir) or {}
+
+        new_level = self._fish_data.get("level", 1)
+        if new_level > prev_level:
+            self._levelup = {
+                "old_level":   prev_level,
+                "new_level":   new_level,
+                "old_species": prev_species,
+                "new_species": self._fish_data.get("species", "🐟"),
+                "name_kr":     self._fish_data.get("name_kr") or "",
+                "xp":          self._fish_data.get("xp", 0),
+            }
+            self._levelup_ticks = int(60 / config.UI_REFRESH_INTERVAL)
 
         fullness = self._fish_data.get("fullness", 50)
         if fullness > 70:
@@ -243,8 +257,6 @@ class WatchApp(App):
             elif self._fish_x <= 2:
                 self._fish_dir = 1
 
-        if self._feedback_ticks > 0:
-            self._feedback_ticks -= 1
         if self._border_flash > 0:
             self._border_flash -= 1
 
@@ -254,13 +266,34 @@ class WatchApp(App):
         self._update_aquarium()
         self._update_stats()
         self._update_activity()
-        self._update_feedback()
+        self._update_effect()
+
+    def _effect_block(self) -> str:
+        """모래 아래 3줄 이펙트 (항상 정확히 3줄 반환)."""
+        if self._levelup_ticks > 0:
+            lu = self._levelup
+            remaining = int(self._levelup_ticks * config.UI_REFRESH_INTERVAL)
+            flash = "yellow" if self._tick % 2 == 0 else "bright_yellow"
+            line1 = (
+                f"[bold {flash}]  ★★★  LEVEL UP!  "
+                f"Lv.{lu['old_level']} → Lv.{lu['new_level']}  "
+                f"{lu['old_species']} ─▶ {lu['new_species']}  {lu['name_kr']}  ★★★[/bold {flash}]"
+            )
+            line2 = f"  [cyan]XP {lu['xp']} 달성  |  포만감 +{config.LEVELUP_FULLNESS_BONUS}% 보너스![/cyan]"
+            line3 = f"  [dim]{remaining}초 후 사라짐[/dim]"
+            return f"{line1}\n{line2}\n{line3}"
+
+        if self._feed_ticks > 0:
+            return self._feed_msg + "\n "
+
+        return " \n \n "
 
     def _update_aquarium(self) -> None:
         content = _build_aquarium(
             self._fish_data, self._tick, self._fish_x, self._fish_dir,
             self._border_flash > 0,
         )
+        content += "\n" + self._effect_block()
         aq = self.query_one("#aquarium", Static)
         aq.update(content)
         if self._border_flash > 0:
@@ -332,10 +365,11 @@ class WatchApp(App):
         )
         self.query_one("#activity", Static).update("\n".join(lines))
 
-    def _update_feedback(self) -> None:
-        self.query_one("#feedback", Static).update(
-            self._feedback if self._feedback_ticks > 0 else ""
-        )
+    def _update_effect(self) -> None:
+        if self._levelup_ticks > 0:
+            self._levelup_ticks -= 1
+        elif self._feed_ticks > 0:
+            self._feed_ticks -= 1
 
     def action_feed(self) -> None:
         f = self._fish_data
@@ -343,17 +377,17 @@ class WatchApp(App):
             return
         result = self._store.feed_fish(f["id"], f["project_id"])
         if result["success"]:
-            self._feedback = (
-                f"[green]{result['stock_before']:,} → {result['stock_after']:,} 토큰 "
-                f"(-{config.FOOD_COST_PER_FEED:,}) / "
-                f"포만감 {result['fullness_before']}% → {result['fullness_after']}% "
-                f"(+{config.FULLNESS_PER_FEED}%)[/green]"
+            self._feed_msg = (
+                f"[green]  🍖  냠냠~  먹이 재고  "
+                f"{result['stock_before']:,} → {result['stock_after']:,} tok  "
+                f"(-{config.FOOD_COST_PER_FEED:,})\n"
+                f"  포만감  {result['fullness_before']}%  ──▶  "
+                f"{result['fullness_after']}%  (+{config.FULLNESS_PER_FEED}%)[/green]"
             )
-            self._border_flash = 1
+            self._border_flash = 3
         else:
-            self._feedback = f"[red]{result['message']}[/red]"
-        self._feedback_ticks = 4
-        self.query_one("#feedback", Static).update(self._feedback)
+            self._feed_msg = f"[red]  {result['message']}[/red]"
+        self._feed_ticks = 8
 
 
 # ── Screen 2: tokenarium (전체 어항) ──────────────────────────────── #
