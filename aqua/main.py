@@ -18,7 +18,6 @@ from store import DataStore
 from limbs.claude_limb import ClaudeLimb
 from limbs.codex_limb import CodexLimb
 from limbs.gemini_limb import GeminiLimb
-from limbs.git_limb import GitLimb
 
 
 # ── 스텁 대체 ──────────────────────────────────────────────────────── #
@@ -54,9 +53,8 @@ def _resolve_renderer(store):
 
 # ── 진입 함수 ──────────────────────────────────────────────────────── #
 
-def run(db_path: str | None = None, git_dirs: list[Path] | None = None) -> None:
+def run(db_path: str | None = None) -> None:
     db_path = db_path or config.DB_PATH
-    git_dirs = git_dirs or [Path(d) for d in config.GIT_WATCH_DIRS] or None
 
     # 1. DataStore
     store = _resolve_store(db_path)
@@ -79,7 +77,6 @@ def run(db_path: str | None = None, git_dirs: list[Path] | None = None) -> None:
         ClaudeLimb(),
         CodexLimb(),
         GeminiLimb(),
-        GitLimb(git_dirs),
     ]
     for limb in limbs:
         orchestrator.register(limb)
