@@ -2,8 +2,9 @@
 Gemini Limb - ~/.gemini/ 감시 (Gemini CLI)
 
 전략: pick_strategy() → watchdog(이벤트) | polling(mtime, 5초 간격)
-파싱: usageMetadata.totalTokenCount
-경로: ~/.gemini/ 없으면 ~/.config/gemini/ 시도
+파싱: attributes["event.name"]=="gemini_cli.api_response" 인 줄에서
+      attributes.total_token_count
+경로: ~/.gemini/usage/YYYY-MM-DD/<uuid>.jsonl 또는 telemetry.log
 """
 
 import hashlib
@@ -53,8 +54,11 @@ def _parse_offset(path: str, offset: int) -> tuple[int, int]:
     tokens = 0
     for line in data.splitlines():
         try:
-            meta = json.loads(line).get("usageMetadata", {})
-            tokens += meta.get("totalTokenCount", 0)
+            obj = json.loads(line)
+            attrs = obj.get("attributes", {})
+            if attrs.get("event.name") != "gemini_cli.api_response":
+                continue
+            tokens += attrs.get("total_token_count", 0)
         except json.JSONDecodeError:
             continue
     return tokens, new_offset
@@ -126,7 +130,9 @@ class GeminiLimb(BaseLimb, PollingMixin):
 
     def _iter_target_files(self):
         target = _resolve_dir()
-        return target.rglob("*.json") if target else []
+        if target is None:
+            return []
+        return [*target.rglob("*.json"), *target.rglob("*.jsonl")]
 
     def _parse_from_offset(self, path: str, offset: int) -> tuple[list[FeedData], int]:
         tokens, new_offset = _parse_offset(path, offset)

@@ -1,9 +1,10 @@
 """
-Codex Limb - ~/.codex/ 감시 (OpenAI Codex CLI)
+Codex Limb - ~/.codex/sessions/**/*.jsonl 감시 (OpenAI Codex CLI)
 
 전략: pick_strategy() → watchdog(이벤트) | polling(mtime, 5초 간격)
-파싱: prompt_tokens + completion_tokens
-경로: 설치 환경마다 다를 수 있음 → CODEX_DIR 상수로 관리
+파싱: type=="event_msg" AND payload.type=="token_count" 인 줄에서
+      payload.info.last_token_usage.input_tokens + output_tokens (콜 단위)
+경로: ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
 """
 
 import hashlib
@@ -43,8 +44,14 @@ def _parse_offset(path: str, offset: int) -> tuple[int, int]:
     tokens = 0
     for line in data.splitlines():
         try:
-            usage = json.loads(line).get("usage", {})
-            tokens += usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)
+            obj = json.loads(line)
+            if obj.get("type") != "event_msg":
+                continue
+            payload = obj.get("payload", {})
+            if payload.get("type") != "token_count":
+                continue
+            usage = payload.get("info", {}).get("last_token_usage", {})
+            tokens += usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
         except json.JSONDecodeError:
             continue
     return tokens, new_offset
@@ -114,10 +121,9 @@ class CodexLimb(BaseLimb, PollingMixin):
     # PollingMixin 구현 ────────────────────────────────────────────── #
 
     def _iter_target_files(self):
-        return [
-            *CODEX_DIR.rglob("*.json"),
-            *CODEX_DIR.rglob("*.jsonl"),
-        ]
+        sessions = CODEX_DIR / "sessions"
+        target = sessions if sessions.exists() else CODEX_DIR
+        return target.rglob("*.jsonl")
 
     def _parse_from_offset(self, path: str, offset: int) -> tuple[list[FeedData], int]:
         tokens, new_offset = _parse_offset(path, offset)
