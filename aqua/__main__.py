@@ -82,7 +82,10 @@ if __name__ == "__main__":
         _run_seed(args.db, args.docs)
         sys.exit(0)
 
-    # 기본 실행 경로 (기존 동작 유지)
+    # 기본 실행 경로: init → seed → app
+    _run_init(args.db)
+    _run_seed(args.db, None)
+
     if args.interval is not None:
         import config
         config.POLL_INTERVAL = args.interval
