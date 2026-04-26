@@ -91,11 +91,10 @@ class _FakeLimb(BaseLimb, PollingMixin):
             return [], new_offset
 
         feed = FeedData(
-            project_id="test1234",
-            project_name="fake-project",
-            raw_value=float(tokens),
+            dir="fake-project",
+            agent_name="fake",
+            total_token=tokens,
             normalized=min(tokens / 100_000, 1.0),
-            source="fake",
         )
         return [feed], new_offset
 
@@ -119,7 +118,7 @@ class TestPollWatch:
         feed = feed_queue.get(timeout=3.0)
         stop_event.set()
 
-        assert feed.raw_value == 150.0
+        assert feed.total_token == 150
 
     def test_no_feed_on_unchanged_file(self, tmp_path):
         """파일이 변경되지 않으면 FeedData를 발행하지 않는다"""
@@ -155,7 +154,7 @@ class TestPollWatch:
         t.start()
 
         first = feed_queue.get(timeout=3.0)
-        assert first.raw_value == 150.0
+        assert first.total_token == 150
 
         # mtime가 반드시 바뀌도록 대기 (동일 mtime tick 내 쓰기 방지)
         time.sleep(0.05)
@@ -167,7 +166,7 @@ class TestPollWatch:
         second = feed_queue.get(timeout=3.0)
         stop_event.set()
 
-        assert second.raw_value == 300.0  # 새 줄만 (150 중복 없음)
+        assert second.total_token == 300  # 새 줄만 (150 중복 없음)
 
     def test_stop_event_terminates_loop(self, tmp_path):
         """stop_event가 세팅되면 루프가 종료된다"""

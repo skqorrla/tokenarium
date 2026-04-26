@@ -22,7 +22,7 @@ class LimbContractMixin:
     def _make_limb(self):
         raise NotImplementedError
 
-    def _expected_source(self) -> str:
+    def _expected_agent_name(self) -> str:
         raise NotImplementedError
 
     # ── 공통 테스트 ────────────────────────────────────────────────── #
@@ -45,12 +45,11 @@ class LimbContractMixin:
     # ── FeedData 검증 헬퍼 (서브클래스 테스트에서 호출) ──────────── #
 
     @staticmethod
-    def assert_feed_valid(feed, expected_source: str):
+    def assert_feed_valid(feed, expected_agent_name: str):
         """FeedData 필드 정합성 공통 검증"""
         assert isinstance(feed, FeedData), f"FeedData 타입이어야 함, 실제: {type(feed)}"
-        assert feed.source == expected_source,  f"source: {feed.source!r} != {expected_source!r}"
-        assert 0.0 <= feed.normalized <= 1.0,   f"normalized 범위 초과: {feed.normalized}"
-        assert len(feed.project_id) == 8,       f"project_id 길이: {len(feed.project_id)}"
-        assert feed.project_name != "",          "project_name 비어있음"
-        assert feed.raw_value >= 0,             f"raw_value 음수: {feed.raw_value}"
-        assert feed.timestamp is not None,       "timestamp 없음"
+        assert feed.agent_name == expected_agent_name, f"agent_name: {feed.agent_name!r} != {expected_agent_name!r}"
+        assert 0.0 <= feed.normalized <= 1.0,          f"normalized 범위 초과: {feed.normalized}"
+        assert feed.dir != "",                          "dir 비어있음"
+        assert feed.total_token >= 0,                  f"total_token 음수: {feed.total_token}"
+        assert feed.created_at is not None,            "created_at 없음"

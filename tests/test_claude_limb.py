@@ -2,7 +2,7 @@
 test_claude_limb.py - ClaudeLimb 및 토큰 인식 로직 테스트
 
 계층 구조:
-  1. 순수 함수 단위 테스트  (_project_name, _normalize, _project_id)
+  1. 순수 함수 단위 테스트  (_project_name, _normalize)
   2. 파일 파싱 테스트        (_parse_offset - tmp_path 사용)
   3. FeedData 생성 테스트    (_parse_from_offset 반환값 검증)
   4. Limb 동작 통합 테스트   (polling 모드, 실제 watch 루프)
@@ -19,11 +19,10 @@ from limbs.claude_limb import (
     _make_feed,
     _normalize,
     _parse_offset,
-    _project_id,
     _project_name,
 )
 from base_limb_test import LimbContractMixin
-from conftest import make_broken_line, make_non_usage_line, make_usage_line
+from conftest import make_broken_line, make_messages_line, make_non_usage_line, make_usage_line
 
 
 # ── 1. 순수 함수 단위 테스트 ───────────────────────────────────────── #
@@ -62,21 +61,6 @@ class TestNormalize:
         assert 0.0 < result < 1.0
 
 
-class TestProjectId:
-    def test_same_path_same_id(self):
-        path = "/home/user/.claude/projects/-home-user-Project-myapp/abc.jsonl"
-        assert _project_id(path) == _project_id(path)
-
-    def test_different_path_different_id(self):
-        path_a = "/home/user/.claude/projects/-home-user-Project-myapp/abc.jsonl"
-        path_b = "/home/user/.claude/projects/-home-user-Project-otherapp/abc.jsonl"
-        assert _project_id(path_a) != _project_id(path_b)
-
-    def test_id_length_is_8(self):
-        path = "/home/user/.claude/projects/-home-user-Project-myapp/abc.jsonl"
-        assert len(_project_id(path)) == 8
-
-
 # ── 2. 파일 파싱 테스트 ────────────────────────────────────────────── #
 
 class TestParseOffset:
@@ -84,7 +68,7 @@ class TestParseOffset:
         f = tmp_path / "session.jsonl"
         f.write_text(make_usage_line(100, 50) + make_usage_line(200, 100))
 
-        tokens, new_offset = _parse_offset(str(f), 0)
+        tokens, line_diff, new_offset = _parse_offset(str(f), 0)
 
         assert tokens == 450
         assert new_offset == f.stat().st_size
@@ -93,7 +77,7 @@ class TestParseOffset:
         f = tmp_path / "session.jsonl"
         f.write_text("")
 
-        tokens, new_offset = _parse_offset(str(f), 0)
+        tokens, line_diff, new_offset = _parse_offset(str(f), 0)
 
         assert tokens == 0
         assert new_offset == 0
@@ -106,25 +90,26 @@ class TestParseOffset:
             + make_usage_line(200, 100)
         )
 
-        tokens, _ = _parse_offset(str(f), 0)
+        tokens, _, _ = _parse_offset(str(f), 0)
 
-        assert tokens == 450  # 깨진 줄 무시
+        assert tokens == 450
 
     def test_ignores_non_usage_lines(self, tmp_path):
         f = tmp_path / "session.jsonl"
         f.write_text(make_non_usage_line() + make_usage_line(100, 50))
 
-        tokens, _ = _parse_offset(str(f), 0)
+        tokens, _, _ = _parse_offset(str(f), 0)
 
-        assert tokens == 150  # usage 없는 줄 무시
+        assert tokens == 150
 
     def test_file_not_found(self, tmp_path):
         missing = str(tmp_path / "nonexistent.jsonl")
 
-        tokens, new_offset = _parse_offset(missing, 0)
+        tokens, line_diff, new_offset = _parse_offset(missing, 0)
 
         assert tokens == 0
-        assert new_offset == 0  # offset 유지 (예외 없음)
+        assert line_diff == 0
+        assert new_offset == 0
 
     def test_incremental_offset_no_duplicate(self, tmp_path):
         """핵심: offset 기반 증분 읽기 - 이전에 읽은 줄을 다시 읽지 않는다"""
@@ -132,19 +117,45 @@ class TestParseOffset:
         first_line = make_usage_line(100, 50)
         f.write_text(first_line)
 
-        # 1차 읽기
-        tokens1, offset1 = _parse_offset(str(f), 0)
+        tokens1, _, offset1 = _parse_offset(str(f), 0)
         assert tokens1 == 150
 
-        # 파일에 새 줄 추가
         with open(f, "a") as fp:
             fp.write(make_usage_line(200, 100))
 
-        # 2차 읽기: 이전 offset 부터 → 새 줄만 파싱
-        tokens2, offset2 = _parse_offset(str(f), offset1)
+        tokens2, _, offset2 = _parse_offset(str(f), offset1)
 
-        assert tokens2 == 300       # 새 줄만 (중복 없음)
-        assert offset2 > offset1    # offset 전진
+        assert tokens2 == 300
+        assert offset2 > offset1
+
+    def test_counts_newlines_in_messages(self, tmp_path):
+        """messages 키의 \\n 개수를 line_diff로 반환한다"""
+        f = tmp_path / "session.jsonl"
+        f.write_text(make_messages_line("line1\nline2\nline3"))
+
+        _, line_diff, _ = _parse_offset(str(f), 0)
+
+        assert line_diff == 2
+
+    def test_line_diff_zero_when_no_messages_key(self, tmp_path):
+        """messages 키가 없으면 line_diff는 0이다"""
+        f = tmp_path / "session.jsonl"
+        f.write_text(make_usage_line(100, 50))
+
+        _, line_diff, _ = _parse_offset(str(f), 0)
+
+        assert line_diff == 0
+
+    def test_line_diff_accumulates_across_lines(self, tmp_path):
+        """여러 줄에 걸친 messages \\n을 모두 합산한다"""
+        f = tmp_path / "session.jsonl"
+        f.write_text(
+            make_messages_line("a\nb") + make_messages_line("c\nd\ne")
+        )
+
+        _, line_diff, _ = _parse_offset(str(f), 0)
+
+        assert line_diff == 3  # 1 + 2
 
 
 # ── 3. FeedData 생성 테스트 ────────────────────────────────────────── #
@@ -159,24 +170,42 @@ class TestParseFeedData:
 
     def test_returns_empty_on_zero_tokens(self, tmp_path):
         f = tmp_path / "session.jsonl"
-        f.write_text(make_non_usage_line())  # 토큰 없는 줄만
+        f.write_text(make_non_usage_line())
 
         limb = ClaudeLimb()
         feeds, _ = limb._parse_from_offset(str(f), 0)
 
         assert feeds == []
 
-    def test_feed_project_name(self, claude_project, claude_jsonl):
+    def test_feed_dir(self, claude_project, claude_jsonl):
         limb = ClaudeLimb()
         feeds, _ = limb._parse_from_offset(str(claude_jsonl), 0)
 
-        assert feeds[0].project_name == "myapp"
+        assert feeds[0].dir == "myapp"
 
-    def test_feed_raw_value(self, claude_jsonl):
+    def test_feed_total_token(self, claude_jsonl):
         limb = ClaudeLimb()
         feeds, _ = limb._parse_from_offset(str(claude_jsonl), 0)
 
-        assert feeds[0].raw_value == 150.0  # 100 + 50
+        assert feeds[0].total_token == 150  # 100 + 50
+
+    def test_feed_session(self, claude_jsonl):
+        limb = ClaudeLimb()
+        feeds, _ = limb._parse_from_offset(str(claude_jsonl), 0)
+
+        assert feeds[0].session == "session"  # 파일명 stem
+
+    def test_feed_line_diff(self, claude_project):
+        """messages 키가 있는 줄에서 line_diff가 FeedData에 반영된다"""
+        f = claude_project / "session2.jsonl"
+        f.write_text(
+            make_usage_line(100, 50) + make_messages_line("line1\nline2")
+        )
+
+        limb = ClaudeLimb()
+        feeds, _ = limb._parse_from_offset(str(f), 0)
+
+        assert feeds[0].line_diff == 1
 
 
 # ── 4. Limb 동작 통합 테스트 ───────────────────────────────────────── #
@@ -225,7 +254,6 @@ class TestClaudeLimbPollingIntegration:
     """
 
     def test_polling_detects_new_tokens(self, monkeypatch, claude_projects_dir):
-        # 빈 파일로 시작
         proj_dir = claude_projects_dir / "-home-user-Project-myapp"
         proj_dir.mkdir()
         jsonl = proj_dir / "session.jsonl"
@@ -235,7 +263,7 @@ class TestClaudeLimbPollingIntegration:
         monkeypatch.setattr("limbs.claude_limb.pick_strategy", lambda: "polling")
 
         limb = ClaudeLimb()
-        limb.POLL_INTERVAL = 0.1  # 테스트용 빠른 간격
+        limb.POLL_INTERVAL = 0.1
 
         feed_queue = queue.Queue()
         stop_event = threading.Event()
@@ -245,18 +273,15 @@ class TestClaudeLimbPollingIntegration:
         )
         t.start()
 
-        # 첫 폴링 사이클이 빈 파일 상태를 기록하도록 대기
         time.sleep(0.25)
-
-        # 토큰 데이터 추가
         jsonl.write_text(make_usage_line(100, 50))
 
-        feed = feed_queue.get(timeout=3.0)  # 최대 3초 대기
+        feed = feed_queue.get(timeout=3.0)
         stop_event.set()
 
-        assert feed.source == "claude"
-        assert feed.project_name == "myapp"
-        assert feed.raw_value == 150.0
+        assert feed.agent_name == "claude"
+        assert feed.dir == "myapp"
+        assert feed.total_token == 150
         assert 0.0 < feed.normalized <= 1.0
 
     def test_polling_no_duplicate_on_second_cycle(self, monkeypatch, claude_projects_dir):
@@ -280,11 +305,9 @@ class TestClaudeLimbPollingIntegration:
         )
         t.start()
 
-        # FeedData 1개 수신 후 추가 발행 없음 확인
         first = feed_queue.get(timeout=3.0)
-        assert first.raw_value == 150.0
+        assert first.total_token == 150
 
-        # 충분한 시간 동안 추가 데이터 없음
         time.sleep(0.3)
         stop_event.set()
 
@@ -316,20 +339,17 @@ class TestClaudeLimbPollingIntegration:
             feeds.append(feed_queue.get(timeout=3.0))
         stop_event.set()
 
-        project_names = {f.project_name for f in feeds}
-        project_ids   = {f.project_id   for f in feeds}
-
-        assert project_names == {"A", "B"}
-        assert len(project_ids) == 2  # 서로 다른 project_id
+        dirs = {f.dir for f in feeds}
+        assert dirs == {"A", "B"}
 
 
 # ── LimbContractMixin 계약 테스트 ─────────────────────────────────── #
 
 class TestClaudeLimbContract(LimbContractMixin):
-    """공통 계약 테스트 - 3개 메서드만 구현하면 6개 테스트 자동 실행"""
+    """공통 계약 테스트 - 3개 메서드만 구현하면 테스트 자동 실행"""
 
     def _make_limb(self):
         return ClaudeLimb()
 
-    def _expected_source(self):
+    def _expected_agent_name(self):
         return "claude"

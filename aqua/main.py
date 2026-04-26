@@ -4,7 +4,6 @@ main.py - 컴포넌트 초기화 및 전체 루프 연결
 담당: 배선(wiring)만. 비즈니스 로직 없음.
 
 스텁 처리 전략:
-  - DataStore 미구현 시 → _StubStore(no-op) 자동 대체, 경고 출력
   - AquariumRenderer 미구현 시 → print 콜백으로 대체, 경고 출력
 """
 
@@ -20,24 +19,10 @@ from limbs.codex_limb import CodexLimb
 from limbs.gemini_limb import GeminiLimb
 
 
-# ── 스텁 대체 ──────────────────────────────────────────────────────── #
-
-class _StubStore:
-    """DataStore 미구현 시 no-op 대체. 프로세스가 오류 없이 실행되도록 유지."""
-    def save_feed(self, feed_data): pass
-    def get_fish_states(self) -> list: return []
-    def update_fish_state(self, dir: str, session: str, food_delta: float): pass
-
-
-def _resolve_store(db_path: str) -> object:
+def _resolve_store(db_path: str) -> DataStore:
     store = DataStore(db_path)
     store.init_db()
-    try:
-        store.get_fish_states()   # 구현 여부 탐침
-        return store
-    except NotImplementedError:
-        print("[aqua] WARNING: DataStore 미구현 → 인메모리 스텁으로 실행")
-        return _StubStore()
+    return store
 
 
 def _resolve_renderer(store):
