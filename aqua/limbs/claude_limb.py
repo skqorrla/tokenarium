@@ -6,11 +6,9 @@ Claude Limb - ~/.claude/projects/**/*.jsonl 감시
 프로젝트 식별: 경로 내 -home-...-<name> 폴더명 파싱
 """
 
-import hashlib
 import json
 import queue
 import threading
-from datetime import datetime
 from pathlib import Path
 
 from interface import BaseLimb, FeedData
@@ -25,10 +23,6 @@ _MAX_TOKENS = 100_000
 def _project_name(path: str) -> str:
     # ~/.claude/projects/-home-user-Project-myapp/xxx.jsonl → "myapp"
     return Path(path).parent.name.rsplit("-", 1)[-1]
-
-
-def _project_id(path: str) -> str:
-    return hashlib.sha256(Path(path).parent.name.encode()).hexdigest()[:8]
 
 
 def _normalize(tokens: int) -> float:
@@ -58,12 +52,11 @@ def _parse_offset(path: str, offset: int) -> tuple[int, int]:
 
 def _make_feed(path: str, tokens: int) -> FeedData:
     return FeedData(
-        project_id=_project_id(path),
-        project_name=_project_name(path),
-        raw_value=float(tokens),
+        dir=_project_name(path),
+        agent_name="claude",
+        total_token=tokens,
         normalized=_normalize(tokens),
-        source="claude",
-        timestamp=datetime.now(),
+        session=Path(path).stem,
     )
 
 

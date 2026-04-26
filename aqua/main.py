@@ -27,11 +27,12 @@ class _StubStore:
     """DataStore 미구현 시 no-op 대체. 프로세스가 오류 없이 실행되도록 유지."""
     def save_feed(self, feed_data): pass
     def get_fish_states(self) -> list: return []
-    def update_fish_state(self, project_id: str, food_delta: float): pass
+    def update_fish_state(self, dir: str, session: str, food_delta: float): pass
 
 
 def _resolve_store(db_path: str) -> object:
     store = DataStore(db_path)
+    store.init_db()
     try:
         store.get_fish_states()   # 구현 여부 탐침
         return store
@@ -66,7 +67,7 @@ def run(db_path: str | None = None, git_dirs: list[Path] | None = None) -> None:
         renderer.on_feed
         if renderer
         else lambda feed: print(
-            f"[feed] {feed.source:<8} {feed.project_name:<20} +{feed.normalized:.3f}"
+            f"[feed] {feed.agent_name:<8} {feed.dir:<20} +{feed.normalized:.3f}"
         )
     )
 
