@@ -15,7 +15,8 @@
 6. [Limb 계층 구조](#6-limb-계층-구조)
 7. [파일 감시 전략](#7-파일-감시-전략)
 8. [물고기 성장 로직](#8-물고기-성장-로직)
-9. [파일 구조](#9-파일-구조)
+9. [진입점 설계](#9-진입점-설계)
+10. [파일 구조](#10-파일-구조)
 
 ---
 
@@ -387,7 +388,136 @@ normalized 사용 시:
 
 ---
 
-## 9. 파일 구조
+## 9. 진입점 설계
+
+### 9-1. 파일 역할 분담
+
+```
+__main__.py   CLI 인자 파싱 → main.run() 호출  (얇은 껍데기)
+main.py       컴포넌트 초기화 + 배선           (로직 없음, 조립만)
+config.py     전역 상수 정의                   (팀원 공유 기준점)
+```
+
+### 9-2. 실행 흐름
+
+```
+python -m aqua [--db PATH] [--dirs PATH...] [--interval N]
+      │
+      ▼
+__main__.py  ── 인자 파싱 → config 오버라이드
+      │
+      ▼
+main.run(db_path, git_dirs)
+      │
+      ├─ 1. DataStore 초기화       _resolve_store()
+      │        │
+      │    구현됐나?
+      │    No → _StubStore (no-op)  ← 경고 출력 후 계속 실행
+      │
+      ├─ 2. AquariumRenderer 초기화  _resolve_renderer()
+      │        │
+      │    구현됐나?
+      │    No → print 콜백으로 대체  ← 경고 출력 후 계속 실행
+      │
+      ├─ 3. Orchestrator(store, on_feed) 생성
+      │
+      ├─ 4. Limb 등록
+      │      orchestrator.register(ClaudeLimb())
+      │      orchestrator.register(CodexLimb())
+      │      orchestrator.register(GeminiLimb())
+      │      orchestrator.register(GitLimb(git_dirs))
+      │
+      ├─ 5. renderer.start()  (있을 때만)
+      │
+      ├─ 6. orchestrator.start()  ← Limb daemon 스레드 시작
+      │
+      ├─ 7. signal 등록 (SIGINT / SIGTERM → _shutdown)
+      │
+      └─ 8. orchestrator.run_dispatch_loop()  ← 블로킹, 무한 실행
+```
+
+### 9-3. 스텁 컴포넌트 처리 전략
+
+팀원의 store / renderer 구현이 완료되기 전에도 프로세스가 정상 실행된다.
+
+```
+_resolve_store(db_path)
+      │
+  DataStore(db_path) 생성
+      │
+  get_fish_states() 호출 (탐침)
+      │
+  NotImplementedError?
+  ┌── Yes ──────────────────────────────────┐
+  │   경고 출력                              │
+  │   return _StubStore()  ← no-op 대체     │
+  └─────────────────────────────────────────┘
+      │
+  No  │
+      ▼
+  return 실제 DataStore
+
+
+_resolve_renderer(store)
+      │
+  from renderer import AquariumRenderer  (import 시도)
+      │
+  ImportError / NotImplementedError?
+  ┌── Yes ──────────────────────────────────┐
+  │   경고 출력                              │
+  │   return None  ← print 콜백 사용        │
+  └─────────────────────────────────────────┘
+      │
+  No  │
+      ▼
+  return AquariumRenderer(store)
+```
+
+### 9-4. 종료 흐름
+
+```
+Ctrl+C (SIGINT)  or  SIGTERM
+      │
+  _shutdown(sig, frame)
+      │
+  orchestrator.stop()   → stop_event.set()
+  renderer.stop()       → 렌더 스레드 종료
+      │
+  sys.exit(0)
+      │
+  daemon 스레드 (Limb들) OS가 자동 회수
+```
+
+### 9-5. config.py 항목
+
+| 상수 | 기본값 | 설명 |
+|---|---|---|
+| `DB_PATH` | `"aqua.db"` | SQLite 파일 경로 |
+| `POLL_INTERVAL` | `5` | polling fallback 간격 (초) |
+| `GIT_WATCH_DIRS` | `[]` | 감시할 git 프로젝트 경로 목록 |
+| `GROWTH_THRESHOLDS` | `[10.0, 50.0, 200.0]` | 물고기 성장 임계값 (소/중/대) |
+| `RENDER_INTERVAL` | `1` | 어항 화면 갱신 주기 (초) |
+
+> `--interval N` CLI 인자가 들어오면 `__main__.py`에서 `config.POLL_INTERVAL`을 오버라이드한다.
+
+### 9-6. 팀원 인터페이스 계약
+
+store / renderer 구현 시 반드시 지켜야 할 메서드 시그니처.
+
+| 파일 | 메서드 | 호출 시점 |
+|---|---|---|
+| `store.py` | `DataStore(db_path)` | main.py 초기화 |
+| `store.py` | `save_feed(feed: FeedData)` | FeedData 수신 시 |
+| `store.py` | `update_fish_state(project_id: str, food_delta: float)` | FeedData 수신 시 |
+| `store.py` | `get_fish_states() → list` | Renderer가 어항 그릴 때 |
+| `renderer.py` | `AquariumRenderer(store)` | main.py 초기화 |
+| `renderer.py` | `start()` | Orchestrator 시작 직전 |
+| `renderer.py` | `stop()` | 프로세스 종료 시 |
+| `renderer.py` | `on_feed(feed: FeedData)` | FeedData 수신 시 콜백 |
+
+---
+
+## 10. 파일 구조
 
 ```
 tokenarium/
@@ -395,15 +525,16 @@ tokenarium/
 ├── docs/
 │   └── architecture.md         ← 이 파일
 └── aqua/
-    ├── __main__.py             (미구현) 진입점
-    ├── main.py                 (미구현) 메인 루프
-    ├── renderer.py             (미구현) 터미널 어항 렌더링
-    ├── fish.py                 (미구현) 물고기 ASCII + 성장 단계
-    ├── config.py               (미구현) 전역 설정
+    ├── __main__.py             ✅ CLI 진입점 (python -m aqua)
+    ├── main.py                 ✅ 컴포넌트 배선 + 실행 루프
+    ├── config.py               ✅ 전역 설정 상수
     │
     ├── interface.py            ✅ FeedData + BaseLimb 계약
     ├── orchestrator.py         ✅ Limb 생명주기 + 라우팅
-    ├── store.py                ✅ DataStore 스텁 (ERD 설계 전)
+    │
+    ├── store.py                🔲 DataStore 스텁 (ERD 설계 전, 로직 없음)
+    ├── fish.py                 🔲 빈 파일 (물고기 ASCII + 성장 단계)
+    ├── renderer.py             🔲 빈 파일 (터미널 어항 렌더링)
     │
     └── limbs/
         ├── __init__.py         ✅
@@ -414,17 +545,28 @@ tokenarium/
         └── git_limb.py         ✅ COMMIT_EDITMSG 감시
 ```
 
-### 다음 구현 순서 (제안)
+### 구현 현황
+
+| 파일 | 상태 | 비고 |
+|---|---|---|
+| `interface.py` | ✅ 완료 | FeedData + BaseLimb |
+| `orchestrator.py` | ✅ 완료 | 스레드 관리 + 라우팅 |
+| `config.py` | ✅ 완료 | 전역 상수 |
+| `main.py` | ✅ 완료 | 배선 + 스텁 자동 감지 |
+| `__main__.py` | ✅ 완료 | argparse CLI |
+| `limbs/*.py` | ✅ 완료 | Claude / Codex / Gemini / Git |
+| `store.py` | 🔲 스텁 | ERD 확정 후 구현 필요 |
+| `fish.py` | 🔲 빈 파일 | ASCII 아트 + 성장 로직 구현 필요 |
+| `renderer.py` | 🔲 빈 파일 | blessed 기반 어항 렌더링 구현 필요 |
+
+### 팀원 구현 시 참고
+
+`main.py`가 스텁 자동 감지 로직을 갖고 있으므로, 구현 완료 후 별도 연결 작업 불필요.
 
 ```
-1순위  DataStore  ERD 설계 → SQLite 구현
-       (projects, fish_state, feed_events 테이블)
-
-2순위  fish.py    ASCII 아트 + 성장 임계값 정의
-
-3순위  renderer.py  blessed/curses 기반 어항 렌더링
-
-4순위  main.py + __main__.py  전체 연결 + 실행
+store.py    → save_feed(), update_fish_state(), get_fish_states() 구현
+fish.py     → ASCII 아트 상수, 성장 임계값 로직 구현
+renderer.py → AquariumRenderer(store), start(), stop(), on_feed(feed) 구현
 ```
 
 ---
@@ -439,5 +581,8 @@ pip install blessed    # 터미널 UI (renderer.py 구현 시 필요)
 실행 방법
 ```bash
 cd tokenarium
-python -m aqua
+python -m aqua                        # 기본 실행
+python -m aqua --dirs ~/Project/myapp # git 프로젝트 지정
+python -m aqua --interval 10          # 폴링 간격 변경
+python -m aqua --db custom.db         # DB 경로 지정
 ```
